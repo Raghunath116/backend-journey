@@ -14,3 +14,7 @@ This repository documents my journey learning backend engineering using **FastAP
 - Python
 - FastAPI
 - Uvicorn
+
+## Day 02
+- Implemented Pydantic request and response models
+- Learned API input/output contracts and validation behavior

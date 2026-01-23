@@ -1,53 +1,111 @@
 from fastapi import FastAPI
-from typing import Dict, Any
+from pydantic import BaseModel
 
 app = FastAPI()
 
-# Root endpoint
-# Purpose: Health check to verify API is running
-# Method: GET
-# Returns: Simple JSON message
+# -----------------------------
+# Pydantic Model (Request Schema)
+# -----------------------------
+# This model defines the expected structure of input data.
+# FastAPI validates incoming request bodies against this schema
+# BEFORE the request reaches business logic.
+class Item(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+
+
+# -----------------------------
+# Root Endpoint
+# -----------------------------
+# Purpose: Health check endpoint to verify API availability.
 @app.get("/")
-def read_root():
-    return {"message": "API running"}
+async def read_root():
+    return {"status": "API is running"}
 
 
-# Item retrieval endpoint
-# Purpose: Fetch an item using its ID
-# Method: GET
-# Path Parameter:
-#   - items_id (int): must be an integer, otherwise FastAPI returns 422
-# Query Parameter:
-#   - q (str | None): optional search/filter string
-@app.get("/items/{items_id}")
-def read_item(items_id: int, q: str | None = None):
-    return {
-        "item_id": items_id,
-        "query": q
-    }
-
-
-# Item creation endpoint
-# Purpose: Create a new item
-# Method: POST
-# Request Body:
-#   - item (dict): JSON payload sent by client
-# Notes:
-#   - If body is missing or invalid, FastAPI returns 422
+# -----------------------------
+# POST Endpoint (Raw Response)
+# -----------------------------
+# Purpose:
+# - Accept item data
+# - Demonstrate request body validation
+# - Show manual response shaping using dict operations
+#
+# Note:
+# - This endpoint does NOT enforce a strict response contract
+# - Used for understanding behavior, not ideal for production
 @app.post("/items/")
-def create_item(item: Dict[str, Any]):
+async def create_item(item: Item):
+    item_dict = item.model_dump()
+
+    # Compute derived field only if tax is provided
+    if item.tax is not None:
+        total_price = item.price + item.tax
+        item_dict.update({"total_price": total_price})
+    else:
+        item_dict.update({"tax": "No tax provided"})
+
+    # Add default value when optional field is missing
+    if item.description is None:
+        item_dict.update({"description": "No description provided"})
+
+    return item_dict
+
+
+# -----------------------------
+# PUT Endpoint (Path + Query + Body)
+# -----------------------------
+# Purpose:
+# - Demonstrates combination of:
+#   - Path parameters
+#   - Query parameters
+#   - Request body
+@app.put("/items/{item_id}")
+async def update_item(item_id: int, item: Item, q: str | None = None):
+    if q:
+        return {
+            "item_id": item_id,
+            "q": q,
+            **item.model_dump()
+        }
     return {
-        "created_item": item
+        "item_id": item_id,
+        **item.model_dump()
     }
 
 
-# Search endpoint
-# Purpose: Perform search based on query string
-# Method: GET
-# Query Parameter:
-#   - query (str): required search keyword
-@app.get("/search")
-def search_items(query: str):
+# -----------------------------
+# Pydantic Model (Response Schema)
+# -----------------------------
+# This model defines what the client is allowed to see.
+# Any extra fields returned by the function are filtered out.
+class ItemResponse(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    total_price: float | None = None
+
+
+# -----------------------------
+# POST Endpoint (Controlled Response)
+# -----------------------------
+# Purpose:
+# - Demonstrates response_model usage
+# - Enforces output contract
+# - Hides internal fields from clients
+@app.post("/items/response/", response_model=ItemResponse)
+async def create_item_response(item: Item):
+    total_price = None
+    if item.tax is not None:
+        total_price = item.price + item.tax
+
+    # Even though we return extra fields,
+    # FastAPI filters the response using ItemResponse
     return {
-        "results": f"Results for query: {query}"
+        "name": item.name,
+        "price": item.price,
+        "total_price": total_price,
+        "internal_note": "This field is not visible"
     }
